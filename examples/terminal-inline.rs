@@ -1,9 +1,9 @@
 use std::fmt;
-use std::fs::read_to_string;
+use std::fs::read;
 use std::process::exit;
 
 use console::{style, Style};
-use similar::text::{ChangeTag, TextDiff};
+use similar::{ChangeTag, TextDiff};
 
 struct Line(Option<usize>);
 
@@ -23,8 +23,8 @@ fn main() {
         exit(1);
     }
 
-    let old = read_to_string(&args[1]).unwrap();
-    let new = read_to_string(&args[2]).unwrap();
+    let old = read(&args[1]).unwrap();
+    let new = read(&args[2]).unwrap();
     let diff = TextDiff::from_lines(&old, &new);
 
     for (idx, group) in diff.grouped_ops(3).iter().enumerate() {
@@ -44,7 +44,7 @@ fn main() {
                     style(Line(change.new_index())).dim(),
                     s.apply_to(sign).bold(),
                 );
-                for &(emphasized, value) in change.values() {
+                for (emphasized, value) in change.iter_strings_lossy() {
                     if emphasized {
                         print!("{}", s.apply_to(value).underlined().on_black());
                     } else {

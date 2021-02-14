@@ -11,7 +11,7 @@ expression: "&changes"
         new_index: Some(
             0,
         ),
-        value: "a\n",
+        value: "1\n",
     },
     Change {
         tag: Delete,
@@ -19,7 +19,7 @@ expression: "&changes"
             1,
         ),
         new_index: None,
-        value: "b",
+        value: "2\n",
     },
     Change {
         tag: Insert,
@@ -27,6 +27,16 @@ expression: "&changes"
         new_index: Some(
             1,
         ),
-        value: "c\n",
+        value: "99\n",
+    },
+    Change {
+        tag: Equal,
+        old_index: Some(
+            2,
+        ),
+        new_index: Some(
+            2,
+        ),
+        value: "3\n",
     },
 ]

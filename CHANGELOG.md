@@ -2,9 +2,28 @@
 
 All notable changes to similar are documented here.
 
-## 0.6.0
+## 1.2.0
+
+* Make the unicode feature optional for inline diffing.
+
+## 1.1.0
+
+* More generic lifetimes for `iter_changes` and `iter_inline_changes`.
+* Added `iter_all_changes` shortcut as this is commonly useful.
+* Added `iter_slices` to `DiffOp` to quickly get an iterator over the
+  encoded slices rather than individual items like `iter_changes` does.
+* Added the `utils` module with various text diffing utilities.
+* Added `TextDiffRemapper` which helps with working with the original, pre
+  `TextDiff` tokenization slices.
+
+## 1.0.0
 
 * Add `get_diff_ratio`.
+* Add support for byte diffing and change the text interface to abstract
+  over `DiffableStr`.
+* Restructured crate layout greatly.  Text diffing is now on the crate root,
+  some functionality remains in the algorithms.
+* The `Change` type now also works for non text diffs.
 
 ## 0.5.0
 

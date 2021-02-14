@@ -1,4 +1,4 @@
-# similar
+# Similar: A Diffing Library
 
 [![Build Status](https://github.com/mitsuhiko/similar/workflows/Tests/badge.svg?branch=main)](https://github.com/mitsuhiko/similar/actions?query=workflow%3ATests)
 [![Crates.io](https://img.shields.io/crates/d/similar.svg)](https://crates.io/crates/similar)
@@ -8,10 +8,10 @@
 Similar is a dependency free crate for Rust that implements different diffing
 algorithms and high level interfaces for it.  It is based on the [pijul](https://pijul.org/)
 implementation of the Myer's and Patience algorithms and inherits some ideas
-from there.
+from there.  It was built for the [insta snapshot testing library](https://insta.rs).
 
 ```rust
-use similar::text::{ChangeTag, TextDiff};
+use similar::{ChangeTag, TextDiff};
 
 fn main() {
     let diff = TextDiff::from_lines(
@@ -19,15 +19,13 @@ fn main() {
         "Hallo Welt\nThis is the second line.\nThis is life.\nMoar and more",
     );
 
-    for op in diff.ops() {
-        for change in diff.iter_changes(op) {
-            let sign = match change.tag() {
-                ChangeTag::Delete => "-",
-                ChangeTag::Insert => "+",
-                ChangeTag::Equal => " ",
-            };
-            print!("{}{}", sign, change);
-        }
+    for change in diff.iter_all_changes() {
+        let sign = match change.tag() {
+            ChangeTag::Delete => "-",
+            ChangeTag::Insert => "+",
+            ChangeTag::Equal => " ",
+        };
+        print!("{}{}", sign, change);
     }
 }
 ```
@@ -40,7 +38,9 @@ fn main() {
 
 * Myer's diff
 * Patience diff
+* Diffing on arbitrary comparable sequences
 * Line, word, character and grapheme level diffing
+* Text and Byte diffing
 * Unified diff generation
 
 ## License and Links

@@ -1,6 +1,6 @@
 [package]
 name = "similar"
-version = "0.5.0"
+version = "1.1.0"
 authors = ["Armin Ronacher <armin.ronacher@active-4.com>", "Pierre-Étienne Meunier <pe@pijul.org>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -18,8 +18,12 @@ all-features = true
 [features]
 default = ["text"]
 text = []
-inline = ["unicode"]
-unicode = ["text", "unicode-segmentation"]
+inline = ["text"]
+
+# this annoyingly currently also turns on bstr and not just bstr/unicode
+# unclear if this is fixable
+unicode = ["text", "unicode-segmentation", "bstr/unicode"]
+bytes = ["bstr", "text"]
 
 [dev-dependencies]
 insta = "1.5.2"
@@ -27,6 +31,11 @@ console = "0.14.0"
 
 [dependencies]
 unicode-segmentation = { version = "1.7.1", optional = true }
+bstr = { version = "0.2.14", optional = true, default-features = false }
+
+[[example]]
+name = "assert"
+required-features = ["text", "inline"]
 
 [[example]]
 name = "terminal"
@@ -34,11 +43,15 @@ required-features = ["text"]
 
 [[example]]
 name = "terminal-inline"
-required-features = ["text", "inline"]
+required-features = ["text", "inline", "bytes"]
+
+[[example]]
+name = "original-slices"
+required-features = ["text"]
 
 [[example]]
 name = "udiff"
-required-features = ["text"]
+required-features = ["text", "bytes"]
 
 [[example]]
 name = "close-matches"

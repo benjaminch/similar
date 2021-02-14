@@ -1,5 +1,5 @@
 use console::Style;
-use similar::text::{ChangeTag, TextDiff};
+use similar::{ChangeTag, TextDiff};
 
 fn main() {
     let diff = TextDiff::from_lines(
@@ -14,7 +14,7 @@ fn main() {
                 ChangeTag::Insert => ("+", Style::new().green()),
                 ChangeTag::Equal => (" ", Style::new()),
             };
-            print!("{}{}", style.apply_to(sign).bold(), style.apply_to(change),);
+            print!("{}{}", style.apply_to(sign).bold(), style.apply_to(change));
         }
     }
 }
