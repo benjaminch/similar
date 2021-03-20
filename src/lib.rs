@@ -1,6 +1,7 @@
 //! This crate implements diffing utilities.  It attempts to provide an abstraction
-//! interface over different types of diffing algorithms.  It's based on the
-//! the diff algorithm implementations of [pijul](https://pijul.org/).
+//! interface over different types of diffing algorithms.  The design of the
+//! library is inspired by pijul's diff library by Pierre-Étienne Meunier and
+//! also inherits the patience diff algorithm from there.
 //!
 //! The API of the crate is split into high and low level functionality.  Most
 //! of what you probably want to use is available top level.  Additionally the
@@ -105,6 +106,22 @@
 //! As the [`TextDiff::grouped_ops`] method can isolate clusters of changes
 //! this even works for very long files if paired with this method.
 //!
+//! # Deadlines and Performance
+//!
+//! For large and very distinct inputs the algorithms as implemented can take
+//! a very, very long time to execute.  Too long to make sense in practice.
+//! To work around this issue all diffing algorithms also provide a version
+//! that accepts a deadline which is the point in time as defined by an
+//! [`Instant`](std::time::Instant) after which the algorithm should give up.
+//! What giving up means depends on the algorithm.  For instance due to the
+//! recursive, divide and conquer nature of Myer's diff you will still get a
+//! pretty decent diff in many cases when a deadline is reached.  Whereas on the
+//! other hand the LCS diff is unlikely to give any decent results in such a
+//! situation.
+//!
+//! The [`TextDiff`] type also lets you configure a deadline and/or timeout
+//! when performing a text diff.
+//!
 //! # Feature Flags
 //!
 //! The crate by default does not have any dependencies however for some use
@@ -127,6 +144,7 @@
 //!   in a line diff.  This currently also enables the `unicode` feature.
 #![warn(missing_docs)]
 pub mod algorithms;
+pub mod iter;
 #[cfg(feature = "text")]
 pub mod udiff;
 #[cfg(feature = "text")]

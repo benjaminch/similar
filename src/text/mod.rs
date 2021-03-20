@@ -2,6 +2,7 @@
 use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::time::{Duration, Instant};
 
 mod abstraction;
 #[cfg(feature = "inline")]
@@ -13,8 +14,25 @@ pub use self::abstraction::{DiffableStr, DiffableStrRef};
 pub use self::inline::InlineChange;
 
 use self::utils::{upper_seq_ratio, QuickSeqRatio};
+use crate::algorithms::IdentifyDistinct;
+use crate::iter::{AllChangesIter, ChangesIter};
 use crate::udiff::UnifiedDiff;
-use crate::{capture_diff_slices, get_diff_ratio, group_diff_ops, Algorithm, Change, DiffOp};
+use crate::{capture_diff_deadline, get_diff_ratio, group_diff_ops, Algorithm, DiffOp};
+
+#[derive(Debug, Clone, Copy)]
+enum Deadline {
+    Absolute(Instant),
+    Relative(Duration),
+}
+
+impl Deadline {
+    fn into_instant(self) -> Instant {
+        match self {
+            Deadline::Absolute(instant) => instant,
+            Deadline::Relative(duration) => Instant::now() + duration,
+        }
+    }
+}
 
 /// A builder type config for more complex uses of [`TextDiff`].
 ///
@@ -23,6 +41,7 @@ use crate::{capture_diff_slices, get_diff_ratio, group_diff_ops, Algorithm, Chan
 pub struct TextDiffConfig {
     algorithm: Algorithm,
     newline_terminated: Option<bool>,
+    deadline: Option<Deadline>,
 }
 
 impl Default for TextDiffConfig {
@@ -30,6 +49,7 @@ impl Default for TextDiffConfig {
         TextDiffConfig {
             algorithm: Algorithm::default(),
             newline_terminated: None,
+            deadline: None,
         }
     }
 }
@@ -40,6 +60,24 @@ impl TextDiffConfig {
     /// The default algorithm is [`Algorithm::Myers`].
     pub fn algorithm(&mut self, alg: Algorithm) -> &mut Self {
         self.algorithm = alg;
+        self
+    }
+
+    /// Sets a deadline for the diff operation.
+    ///
+    /// By default a diff will take as long as it takes.  For certain diff
+    /// algorthms like Myer's and Patience a maximum running time can be
+    /// defined after which the algorithm gives up and approximates.
+    pub fn deadline(&mut self, deadline: Instant) -> &mut Self {
+        self.deadline = Some(Deadline::Absolute(deadline));
+        self
+    }
+
+    /// Sets a timeout for thediff operation.
+    ///
+    /// This is like [`deadline`](Self::deadline) but accepts a duration.
+    pub fn timeout(&mut self, timeout: Duration) -> &mut Self {
+        self.deadline = Some(Deadline::Relative(timeout));
         self
     }
 
@@ -290,7 +328,27 @@ impl TextDiffConfig {
         new: Cow<'bufs, [&'new T]>,
         newline_terminated: bool,
     ) -> TextDiff<'old, 'new, 'bufs, T> {
-        let ops = capture_diff_slices(self.algorithm, &old, &new);
+        let deadline = self.deadline.map(|x| x.into_instant());
+        let ops = if old.len() > 100 || new.len() > 100 {
+            let ih = IdentifyDistinct::<u32>::new(&old[..], 0..old.len(), &new[..], 0..new.len());
+            capture_diff_deadline(
+                self.algorithm,
+                ih.old_lookup(),
+                ih.old_range(),
+                ih.new_lookup(),
+                ih.new_range(),
+                deadline,
+            )
+        } else {
+            capture_diff_deadline(
+                self.algorithm,
+                &old[..],
+                0..old.len(),
+                &new[..],
+                0..new.len(),
+                deadline,
+            )
+        };
         TextDiff {
             old,
             new,
@@ -437,7 +495,7 @@ impl<'old, 'new, 'bufs, T: DiffableStr + ?Sized + 'old + 'new> TextDiff<'old, 'n
     pub fn iter_changes<'x, 'slf>(
         &'slf self,
         op: &DiffOp,
-    ) -> impl Iterator<Item = Change<'x, T>> + 'slf
+    ) -> ChangesIter<'slf, 'x, [&'x T], [&'x T], T>
     where
         'x: 'slf,
         'old: 'x,
@@ -462,16 +520,13 @@ impl<'old, 'new, 'bufs, T: DiffableStr + ?Sized + 'old + 'new> TextDiff<'old, 'n
     ///
     /// This is a shortcut for combining [`TextDiff::ops`] with
     /// [`TextDiff::iter_changes`].
-    pub fn iter_all_changes<'x, 'slf>(&'slf self) -> impl Iterator<Item = Change<'x, T>> + 'slf
+    pub fn iter_all_changes<'x, 'slf>(&'slf self) -> AllChangesIter<'slf, 'x, T>
     where
-        'x: 'slf,
+        'x: 'slf + 'old + 'new,
         'old: 'x,
         'new: 'x,
     {
-        // unclear why this needs Box::new here.  It seems to infer some really
-        // odd lifetimes I can't figure out how to work with.
-        Box::new(self.ops().iter().flat_map(move |op| self.iter_changes(&op)))
-            as Box<dyn Iterator<Item = _>>
+        AllChangesIter::new(&self.old[..], &self.new[..], self.ops())
     }
 
     /// Utility to return a unified diff formatter.
@@ -492,14 +547,12 @@ impl<'old, 'new, 'bufs, T: DiffableStr + ?Sized + 'old + 'new> TextDiff<'old, 'n
     ///
     /// Requires the `inline` feature.
     #[cfg(feature = "inline")]
-    pub fn iter_inline_changes<'x, 'slf>(
+    pub fn iter_inline_changes<'slf>(
         &'slf self,
         op: &DiffOp,
-    ) -> impl Iterator<Item = InlineChange<'x, T>> + 'slf
+    ) -> impl Iterator<Item = InlineChange<'slf, T>> + '_
     where
-        'x: 'slf,
-        'old: 'x,
-        'new: 'x,
+        'slf: 'old + 'new,
     {
         inline::iter_inline_changes(self, op)
     }
@@ -544,7 +597,7 @@ pub fn get_close_matches<'a, T: DiffableStr + ?Sized>(
         if ratio >= cutoff {
             // we're putting the word itself in reverse in so that matches with
             // the same ratio are ordered lexicographically.
-            matches.push(((ratio * u32::MAX as f32) as u32, Reverse(possibility)));
+            matches.push(((ratio * std::u32::MAX as f32) as u32, Reverse(possibility)));
         }
     }
 
@@ -673,6 +726,8 @@ fn test_get_close_matches() {
 
 #[test]
 fn test_lifetimes_on_iter() {
+    use crate::Change;
+
     fn diff_lines<'x, T>(old: &'x T, new: &'x T) -> Vec<Change<'x, T::Output>>
     where
         T: DiffableStrRef + ?Sized,

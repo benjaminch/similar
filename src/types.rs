@@ -1,7 +1,9 @@
 use std::fmt;
 use std::ops::{Index, Range};
 
+use crate::algorithms::utils::is_empty_range;
 use crate::algorithms::DiffHook;
+use crate::iter::ChangesIter;
 
 /// An enum representing a diffing algorithm.
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -10,6 +12,8 @@ pub enum Algorithm {
     Myers,
     /// Picks the patience algorithm from [`crate::algorithms::patience`]
     Patience,
+    /// Picks the LCS algorithm from [`crate::algorithms::lcs`]
+    Lcs,
 }
 
 impl Default for Algorithm {
@@ -270,92 +274,14 @@ impl DiffOp {
         &self,
         old: &'lookup Old,
         new: &'lookup New,
-    ) -> impl Iterator<Item = Change<'x, T>> + 'lookup
+    ) -> ChangesIter<'lookup, 'x, Old, New, T>
     where
         Old: Index<usize, Output = &'x T> + ?Sized,
         New: Index<usize, Output = &'x T> + ?Sized,
         T: 'x + ?Sized,
         'x: 'lookup,
     {
-        let (tag, old_range, new_range) = self.as_tag_tuple();
-        let mut old_index = old_range.start;
-        let mut new_index = new_range.start;
-        let mut old_i = old_range.start;
-        let mut new_i = new_range.start;
-
-        std::iter::from_fn(move || match tag {
-            DiffTag::Equal => {
-                if old_i < old_range.end {
-                    let value = old[old_i];
-                    old_i += 1;
-                    old_index += 1;
-                    new_index += 1;
-                    Some(Change {
-                        tag: ChangeTag::Equal,
-                        old_index: Some(old_index - 1),
-                        new_index: Some(new_index - 1),
-                        value,
-                    })
-                } else {
-                    None
-                }
-            }
-            DiffTag::Delete => {
-                if old_i < old_range.end {
-                    let value = old[old_i];
-                    old_i += 1;
-                    old_index += 1;
-                    Some(Change {
-                        tag: ChangeTag::Delete,
-                        old_index: Some(old_index - 1),
-                        new_index: None,
-                        value,
-                    })
-                } else {
-                    None
-                }
-            }
-            DiffTag::Insert => {
-                if new_i < new_range.end {
-                    let value = new[new_i];
-                    new_i += 1;
-                    new_index += 1;
-                    Some(Change {
-                        tag: ChangeTag::Insert,
-                        old_index: None,
-                        new_index: Some(new_index - 1),
-                        value,
-                    })
-                } else {
-                    None
-                }
-            }
-            DiffTag::Replace => {
-                if old_i < old_range.end {
-                    let value = old[old_i];
-                    old_i += 1;
-                    old_index += 1;
-                    Some(Change {
-                        tag: ChangeTag::Delete,
-                        old_index: Some(old_index - 1),
-                        new_index: None,
-                        value,
-                    })
-                } else if new_i < new_range.end {
-                    let value = new[new_i];
-                    new_i += 1;
-                    new_index += 1;
-                    Some(Change {
-                        tag: ChangeTag::Insert,
-                        old_index: None,
-                        new_index: Some(new_index - 1),
-                        value,
-                    })
-                } else {
-                    None
-                }
-            }
-        })
+        ChangesIter::new(old, new, *self)
     }
 
     /// Given a diffop yields the changes it encodes against the given slices.
@@ -416,6 +342,87 @@ impl DiffOp {
             } => Some((ChangeTag::Delete, &old[old_index..old_index + old_len]))
                 .into_iter()
                 .chain(Some((ChangeTag::Insert, &new[new_index..new_index + new_len])).into_iter()),
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        let (_, old, new) = self.as_tag_tuple();
+        is_empty_range(&old) && is_empty_range(&new)
+    }
+
+    pub(crate) fn shift_left(&mut self, adjust: usize) {
+        self.adjust((adjust, true), (0, false));
+    }
+
+    pub(crate) fn shift_right(&mut self, adjust: usize) {
+        self.adjust((adjust, false), (0, false));
+    }
+
+    pub(crate) fn grow_left(&mut self, adjust: usize) {
+        self.adjust((adjust, true), (adjust, false));
+    }
+
+    pub(crate) fn grow_right(&mut self, adjust: usize) {
+        self.adjust((0, false), (adjust, false));
+    }
+
+    pub(crate) fn shrink_left(&mut self, adjust: usize) {
+        self.adjust((0, false), (adjust, true));
+    }
+
+    pub(crate) fn shrink_right(&mut self, adjust: usize) {
+        self.adjust((adjust, false), (adjust, true));
+    }
+
+    fn adjust(&mut self, adjust_offset: (usize, bool), adjust_len: (usize, bool)) {
+        #[inline(always)]
+        fn modify(val: &mut usize, adj: (usize, bool)) {
+            if adj.1 {
+                *val -= adj.0;
+            } else {
+                *val += adj.0;
+            }
+        }
+
+        match self {
+            DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } => {
+                modify(old_index, adjust_offset);
+                modify(new_index, adjust_offset);
+                modify(len, adjust_len);
+            }
+            DiffOp::Delete {
+                old_index,
+                old_len,
+                new_index,
+            } => {
+                modify(old_index, adjust_offset);
+                modify(old_len, adjust_len);
+                modify(new_index, adjust_offset);
+            }
+            DiffOp::Insert {
+                old_index,
+                new_index,
+                new_len,
+            } => {
+                modify(old_index, adjust_offset);
+                modify(new_index, adjust_offset);
+                modify(new_len, adjust_len);
+            }
+            DiffOp::Replace {
+                old_index,
+                old_len,
+                new_index,
+                new_len,
+            } => {
+                modify(old_index, adjust_offset);
+                modify(old_len, adjust_len);
+                modify(new_index, adjust_offset);
+                modify(new_len, adjust_len);
+            }
         }
     }
 }

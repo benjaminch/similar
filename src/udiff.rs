@@ -24,11 +24,11 @@
 //! The former uses [`DiffableStr::to_string_lossy`], the latter uses
 //! [`DiffableStr::as_bytes`] for each line.
 #[cfg(feature = "text")]
-use std::ops::Range;
 use std::{fmt, io};
 
+use crate::iter::AllChangesIter;
 use crate::text::{DiffableStr, TextDiff};
-use crate::types::{Algorithm, Change, DiffOp};
+use crate::types::{Algorithm, DiffOp};
 
 struct MissingNewlineHint(bool);
 
@@ -45,10 +45,6 @@ impl fmt::Display for MissingNewlineHint {
 struct UnifiedDiffHunkRange(usize, usize);
 
 impl UnifiedDiffHunkRange {
-    fn new(range: Range<usize>) -> UnifiedDiffHunkRange {
-        UnifiedDiffHunkRange(range.start, range.end)
-    }
-
     fn start(&self) -> usize {
         self.0
     }
@@ -60,7 +56,7 @@ impl UnifiedDiffHunkRange {
 
 impl fmt::Display for UnifiedDiffHunkRange {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut beginning = self.start();
+        let mut beginning = self.start() + 1;
         let len = self.end() - self.start();
         if len == 1 {
             write!(f, "{}", beginning)
@@ -83,9 +79,15 @@ pub struct UnifiedHunkHeader {
 impl UnifiedHunkHeader {
     /// Creates a hunk header from a (non empty) slice of diff ops.
     pub fn new(ops: &[DiffOp]) -> UnifiedHunkHeader {
+        let first = ops[0];
+        let last = ops[ops.len() - 1];
+        let old_start = first.old_range().start;
+        let new_start = first.new_range().start;
+        let old_end = last.old_range().end;
+        let new_end = last.new_range().end;
         UnifiedHunkHeader {
-            old_range: UnifiedDiffHunkRange::new(ops[0].old_range()),
-            new_range: UnifiedDiffHunkRange::new(ops[ops.len() - 1].new_range()),
+            old_range: UnifiedDiffHunkRange(old_start, old_end),
+            new_range: UnifiedDiffHunkRange(new_start, new_end),
         }
     }
 }
@@ -176,7 +178,10 @@ impl<'diff, 'old, 'new, 'bufs, T: DiffableStr + ?Sized> UnifiedDiff<'diff, 'old,
     }
 
     /// Write the unified diff as bytes to the output stream.
-    pub fn to_writer<W: io::Write>(&self, mut w: W) -> Result<(), io::Error> {
+    pub fn to_writer<W: io::Write>(&self, mut w: W) -> Result<(), io::Error>
+    where
+        'diff: 'old + 'new + 'bufs,
+    {
         let mut header = self.header.as_ref();
         for hunk in self.iter_hunks() {
             if let Some((old_file, new_file)) = header.take() {
@@ -237,18 +242,20 @@ impl<'diff, 'old, 'new, 'bufs, T: DiffableStr + ?Sized>
     }
 
     /// Iterates over all changes in a hunk.
-    pub fn iter_changes(&self) -> impl Iterator<Item = Change<'_, T>> + '_ {
-        // unclear why this needs Box::new here.  It seems to infer some really
-        // odd lifetimes I can't figure out how to work with.
-        Box::new(
-            self.ops()
-                .iter()
-                .flat_map(move |op| self.diff.iter_changes(op)),
-        ) as Box<dyn Iterator<Item = _>>
+    pub fn iter_changes<'x, 'slf>(&'slf self) -> AllChangesIter<'slf, 'x, T>
+    where
+        'x: 'slf + 'old + 'new,
+        'old: 'x,
+        'new: 'x,
+    {
+        AllChangesIter::new(self.diff.old_slices(), self.diff.new_slices(), self.ops())
     }
 
     /// Write the hunk as bytes to the output stream.
-    pub fn to_writer<W: io::Write>(&self, mut w: W) -> Result<(), io::Error> {
+    pub fn to_writer<W: io::Write>(&self, mut w: W) -> Result<(), io::Error>
+    where
+        'diff: 'old + 'new + 'bufs,
+    {
         for (idx, change) in self.iter_changes().enumerate() {
             if idx == 0 {
                 writeln!(w, "{}", self.header())?;
@@ -268,6 +275,8 @@ impl<'diff, 'old, 'new, 'bufs, T: DiffableStr + ?Sized>
 
 impl<'diff, 'old, 'new, 'bufs, T: DiffableStr + ?Sized> fmt::Display
     for UnifiedDiffHunk<'diff, 'old, 'new, 'bufs, T>
+where
+    'diff: 'old + 'new + 'bufs,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (idx, change) in self.iter_changes().enumerate() {
@@ -288,6 +297,8 @@ impl<'diff, 'old, 'new, 'bufs, T: DiffableStr + ?Sized> fmt::Display
 
 impl<'diff, 'old, 'new, 'bufs, T: DiffableStr + ?Sized> fmt::Display
     for UnifiedDiff<'diff, 'old, 'new, 'bufs, T>
+where
+    'diff: 'old + 'new + 'bufs,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut header = self.header.as_ref();

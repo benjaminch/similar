@@ -2,9 +2,37 @@
 
 All notable changes to similar are documented here.
 
+## 1.3.0
+
+* Performance improvements for the LCS algorithm.
+* Small performance improvments by adding an early opt-out for and inline highlighting.
+* Added `IdentifyDistinct` to convert sequences to ints.
+* Small performance improvements for larger text diffs by using `IdentifyDistinct`
+  automatically above a threshold.
+* Added deadlines to all diffing algorithms to bail early.
+* Deprecated slice diffing methods in the individual algorithm modules.
+* Use a default timeout for the inline highlighting feature.
+* Added a compacting step to clean up diffs.  This results in nicer looking diffs and
+  fewer edits.  This is happening automatically for captured diffs and is exposed
+  through the `Capture` type.
+* Fix incorrect ranges in unified diff output.
+
+## 1.2.2
+
+* Added support for Rust 1.41.0 for better compatibility.
+
+## 1.2.1
+
+* Added support for Rust 1.43.0 for better compatibility.
+
 ## 1.2.0
 
 * Make the unicode feature optional for inline diffing.
+* Added Hunt–McIlroy LCS algorithm (`lcs`).
+* Changed the implementation of Mayer's diff.  This has slightly changed the
+  behavior but resulted in significantly improved performance and more
+  readable code.
+* Added `NoFinishHook` to aid composing of diff hooks.
 
 ## 1.1.0
 
